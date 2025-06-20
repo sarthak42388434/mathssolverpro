@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Math Solver Pro - AI-Powered Math Problem Solver</title>
+    <meta name="description" content="Solve math problems instantly with AI. Upload images or type problems for step-by-step solutions. Free and premium plans available.">
+    <meta name="keywords" content="math solver, math calculator, step by step solutions, OCR math, AI math tutor">
+    
+    <!-- External Libraries -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjs@11.11.0/lib/browser/math.min.js"></script>
+    
+    <style>
+        .adsense-placeholder {
+            background: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), 
+                        linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #f0f0f0 75%), 
+                        linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            border: 2px dashed #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-weight: bold;
+            min-height: 120px;
+        }
+        
+        .math-input {
+            font-family: 'Courier New', monospace;
+        }
+        
+        .solution-step {
+            transition: all 0.3s ease;
+        }
+        
+        .solution-step:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .camera-preview {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .loading-spinner {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Usage tracking utilities
+        const DAILY_LIMIT = 5;
+        const STORAGE_KEY = 'mathSolverUsage';
+
+        const getUsageData = () => {
+            const today = new Date().toDateString();
+            const stored = localStorage.getItem(STORAGE_KEY);
+            const data = stored ? JSON.parse(stored) : {};
+            
+            if (data.date !== today) {
+                data.date = today;
+                data.count = 0;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            }
+            
+            return data;
+        };
+
+        const incrementUsage = () => {
+            const data = getUsageData();
+            data.count += 1;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            return data;
+        };
+
+        const canUseService = () => {
+            const data = getUsageData();
+            return data.count < DAILY_LIMIT;
+        };
+
+        const getRemainingUses = () => {
+            const data = getUsageData();
+            return Math.max(0, DAILY_LIMIT - data.count);
+        };
+
+        // Check if user is on premium page
+        const isPremiumUser = () => {
+            return window.location.hash === '#premium-access';
+        };
+
+        // Math solving utilities
+        const solveMathProblem = (problem) => {
+            try {
+                // Clean the problem text
+                const cleanProblem = problem.replace(/[^0-9+\-*/().\s=x]/g, '');
+                
+                // Try to evaluate the expression
+                let result;
+                let steps = [];
+                
+                if (cleanProblem.includes('=')) {
+                    // Handle equations
+                    const parts = cleanProblem.split('=');
+                    if (parts.length === 2) {
+                        try {
+                            const leftSide = math.evaluate(parts[0].trim());
+                            const rightSide = math.evaluate(parts[1].trim());
+                            result = `${leftSide} = ${rightSide} (${leftSide === rightSide ? 'True' : 'False'})`;
+                            steps = [
+                                `Original equation: ${cleanProblem}`,
+                                `Left side: ${parts[0].trim()} = ${leftSide}`,
+                                `Right side: ${parts[1].trim()} = ${rightSide}`,
+                                `Result: ${result}`
+                            ];
+                        } catch (e) {
+                            result = 'Unable to solve equation';
+                            steps = ['Error: Invalid equation format'];
+                        }
+                    }
+                } else {
+                    // Handle expressions
+                    result = math.evaluate(cleanProblem);
+                    steps = [
+                        `Original expression: ${cleanProblem}`,
+                        `Simplified: ${result}`,
+                        `Final answer: ${result}`
+                    ];
+                }
+                
+                return {
+                    success: true,
+                    answer: result,
+                    steps: steps
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: 'Unable to solve this problem. Please check the format.',
+                    steps: []
+                };
+            }
+        };
+
+        // Header Component
+        const Header = ({ currentPage, setCurrentPage }) => (
+            <header className="bg-white shadow-lg">
+                <div className="container mx-auto px-4 py-4">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center space-x-2">
+                            <i className="fas fa-calculator text-blue-600 text-2xl"></i>
+                            <h1 className="text-2xl font-bold text-gray-800">Math Solver Pro</h1>
+                        </div>
+                        
+                        <nav className="hidden md:flex space-x-6">
+                            <button 
+                                onClick={() => setCurrentPage('home')}
+                                className={`${currentPage === 'home' ? 'text-blue-600' : 'text-gray-600'} hover:text-blue-600 transition`}
+                            >
+                                Home
+                            </button>
+                            <button 
+                                onClick={() => setCurrentPage('learn')}
+                                className={`${currentPage === 'learn' ? 'text-blue-600' : 'text-gray-600'} hover:text-blue-600 transition`}
+                            >
+                                Learn
+                            </button>
+                            <button 
+                                onClick={() => setCurrentPage('faq')}
+                                className={`${currentPage === 'faq' ? 'text-blue-600' : 'text-gray-600'} hover:text-blue-600 transition`}
+                            >
+                                FAQ
+                            </button>
+                            <button 
+                                onClick={() => setCurrentPage('contact')}
+                                className={`${currentPage === 'contact' ? 'text-blue-600' : 'text-gray-600'} hover:text-blue-600 transition`}
+                            >
+                                Contact
+                            </button>
+                        </nav>
+
+                        <div className="flex items-center space-x-4">
+                            {!isPremiumUser() && (
+                                <a 
+                                    href="https://gumroad.com/l/mathsolverpro" 
+                                    target="_blank"
+                                    className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-blue-700 transition font-semibold"
+                                >
+                                    <i className="fas fa-crown mr-2"></i>Buy Premium $5
+                                </a>
+                            )}
+                            {isPremiumUser() && (
+                                <span className="bg-gradient-to-r from-gold-400 to-yellow-500 text-white px-4 py-2 rounded-lg font-semibold">
+                                    <i className="fas fa-crown mr-2"></i>Premium User
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </header>
+        );
+
+        // Usage Limit Modal
+        const UsageLimitModal = ({ isOpen, onClose }) => {
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-8 max-w-md mx-4">
+                        <div className="text-center">
+                            <i className="fas fa-lock text-red-500 text-4xl mb-4"></i>
+                            <h3 className="text-xl font-bold mb-4">Free Limit Reached</h3>
+                            <p className="text-gray-600 mb-6">
+                                You've reached your free limit of {DAILY_LIMIT} questions per day. 
+                                Upgrade to Premium for unlimited access!
+                            </p>
+                            <div className="space-y-3">
+                                <a 
+                                    href="https://gumroad.com/l/mathsolverpro" 
+                                    target="_blank"
+                                    className="block bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 px-6 rounded-lg hover:from-purple-700 hover:to-blue-700 transition font-semibold"
+                                >
+                                    <i className="fas fa-crown mr-2"></i>Buy Premium - $5
+                                </a>
+                                <button 
+                                    onClick={onClose}
+                                    className="block w-full text-gray-500 py-2 hover:text-gray-700 transition"
+                                >
+                                    Maybe Later
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Math Solver Component
+        const MathSolver = () => {
+            const [problem, setProblem] = useState('');
+            const [solution, setSolution] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [ocrLoading, setOcrLoading] = useState(false);
+            const [showLimitModal, setShowLimitModal] = useState(false);
+            const [remainingUses, setRemainingUses] = useState(getRemainingUses());
+            const fileInputRef = useRef(null);
+
+            useEffect(() => {
+                setRemainingUses(getRemainingUses());
+            }, []);
+
+            const handleSolve = async () => {
+                if (!problem.trim()) {
+                    alert('Please enter a math problem');
+                    return;
+                }
+
+                // Check usage limit for free users
+                if (!isPremiumUser() && !canUseService()) {
+                    setShowLimitModal(true);
+                    return;
+                }
+
+                setLoading(true);
+                setSolution(null);
+
+                // Simulate solving delay for better UX
+                setTimeout(() => {
+                    const result = solveMathProblem(problem);
+                    setSolution(result);
+                    setLoading(false);
+
+                    // Increment usage for free users
+                    if (!isPremiumUser()) {
+                        incrementUsage();
+                        setRemainingUses(getRemainingUses());
+                    }
+                }, 1000);
+            };
+
+            const handleImageUpload = async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // Check usage limit for free users
+                if (!isPremiumUser() && !canUseService()) {
+                    setShowLimitModal(true);
+                    return;
+                }
+
+                setOcrLoading(true);
+                setSolution(null);
+
+                try {
+                    const result = await Tesseract.recognize(file, 'eng', {
+                        logger: m => console.log(m)
+                    });
+                    
+                    const extractedText = result.data.text.trim();
+                    setProblem(extractedText);
+                    setOcrLoading(false);
+
+                    if (extractedText) {
+                        // Auto-solve after OCR
+                        setTimeout(() => {
+                            const mathResult = solveMathProblem(extractedText);
+                            setSolution(mathResult);
+
+                            // Increment usage for free users
+                            if (!isPremiumUser()) {
+                                incrementUsage();
+                                setRemainingUses(getRemainingUses());
+                            }
+                        }, 500);
+                    }
+                } catch (error) {
+                    console.error('OCR Error:', error);
+                    alert('Failed to read the image. Please try again.');
+                    setOcrLoading(false);
+                }
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto p-6">
+                    {/* AdSense Placeholder - Above Input */}
+                    {!isPremiumUser() && (
+                        <div className="adsense-placeholder mb-6">
+                            AdSense Ad Space - Above Input
+                        </div>
+                    )}
+
+                    {/* Usage Counter for Free Users */}
+                    {!isPremiumUser() && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                    <i className="fas fa-info-circle text-blue-600"></i>
+                                    <span className="text-blue-800">
+                                        Free Plan: {remainingUses} questions remaining today
+                                    </span>
+                                </div>
+                                <a 
+                                    href="https://gumroad.com/l/mathsolverpro" 
+                                    target="_blank"
+                                    className="text-blue-600 hover:text-blue-800 font-semibold text-sm"
+                                >
+                                    Upgrade to Premium →
+                                </a>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="bg-white rounded-lg shadow-lg p-8">
+                        <h2 className="text-3xl font-bold text-center mb-8 text-gray-800">
+                            <i className="fas fa-calculator mr-3 text-blue-600"></i>
+                            Solve Your Math Problem
+                        </h2>
+
+                        <div className="space-y-6">
+                            {/* Input Methods */}
+                            <div className="grid md:grid-cols-2 gap-6">
+                                {/* Manual Input */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        <i className="fas fa-keyboard mr-2"></i>Type Your Problem
+                                    </label>
+                                    <textarea
+                                        value={problem}
+                                        onChange={(e) => setProblem(e.target.value)}
+                                        placeholder="Enter your math problem (e.g., 2x + 5 = 15, or 25 + 30 * 2)"
+                                        className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent math-input"
+                                        rows="4"
+                                    />
+                                </div>
+
+                                {/* Image Upload */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        <i className="fas fa-camera mr-2"></i>Upload Image
+                                    </label>
+                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleImageUpload}
+                                            ref={fileInputRef}
+                                            className="hidden"
+                                        />
+                                        <button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            disabled={ocrLoading}
+                                            className="text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                                        >
+                                            {ocrLoading ? (
+                                                <>
+                                                    <i className="fas fa-spinner loading-spinner mr-2"></i>
+                                                    Processing Image...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i className="fas fa-cloud-upload-alt text-2xl mb-2 block"></i>
+                                                    Click to upload math problem image
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Solve Button */}
+                            <div className="text-center">
+                                <button
+                                    onClick={handleSolve}
+                                    disabled={loading || ocrLoading || !problem.trim()}
+                                    className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                >
+                                    {loading ? (
+                                        <>
+                                            <i className="fas fa-spinner loading-spinner mr-2"></i>
+                                            Solving...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="fas fa-magic mr-2"></i>
+                                            Solve Problem
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* Solution Display */}
+                            {solution && (
+                                <div className="fade-in">
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                                        <h3 className="text-xl font-bold text-green-800 mb-4">
+                                            <i className="fas fa-check-circle mr-2"></i>
+                                            Solution
+                                        </h3>
+                                        
+                                        {solution.success ? (
+                                            <>
+                                                <div className="bg-white rounded-lg p-4 mb-4">
+                                                    <div className="text-2xl font-bold text-center text-blue-600">
+                                                        Answer: {solution.answer}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div>
+                                                    <h4 className="font-semibold text-green-700 mb-2">Step-by-Step Solution:</h4>
+                                                    <div className="space-y-2">
+                                                        {solution.steps.map((step, index) => (
+                                                            <div key={index} className="solution-step bg-white rounded p-3 border-l-4 border-blue-500">
+                                                                <span className="text-sm text-gray-600">Step {index + 1}:</span>
+                                                                <div className="font-mono">{step}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-red-600">
+                                                <i className="fas fa-exclamation-triangle mr-2"></i>
+                                                {solution.error}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* AdSense Placeholder - Below Solution */}
+                    {!isPremiumUser() && (
+                        <div className="adsense-placeholder mt-6">
+                            AdSense Ad Space - Below Solution
+                        </div>
+                    )}
+
+                    {/* Usage Limit Modal */}
+                    <UsageLimitModal 
+                        isOpen={showLimitModal} 
+                        onClose={() => setShowLimitModal(false)} 
+                    />
+                </div>
+            );
+        };
+
+        // Learn Page Component
+        const LearnPage = () => (
+            <div className="max-w-4xl mx-auto p-6">
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                    <h2 className="text-3xl font-bold mb-8 text-gray-800">
+                        <i className="fas fa-graduation-cap mr-3 text-blue-600"></i>
+                        Learn Math with Math Solver Pro
+                    </h2>
+
+                    <div className="grid md:grid-cols-2 gap-8">
+                        <div>
+                            <h3 className="text-xl font-semibold mb-4 text-gray-700">Basic Arithmetic</h3>
+                            <div className="space-y-4">
+                                <div className="bg-blue-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold">Addition & Subtraction</h4>
+                                    <p className="text-gray-600">Learn the fundamentals of adding and subtracting numbers.</p>
+                                    <div className="mt-2 font-mono text-sm">Example: 25 + 30 - 5 = 50</div>
+                                </div>
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold">Multiplication & Division</h4>
+                                    <p className="text-gray-600">Master multiplication tables and division operations.</p>
+                                    <div className="mt-2 font-mono text-sm">Example: 12 × 8 ÷ 4 = 24</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 className="text-xl font-semibold mb-4 text-gray-700">Algebra</h3>
+                            <div className="space-y-4">
+                                <div className="bg-purple-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold">Linear Equations</h4>
+                                    <p className="text-gray-600">Solve for unknown variables in linear equations.</p>
+                                    <div className="mt-2 font-mono text-sm">Example: 2x + 5 = 15</div>
+                                </div>
+                                <div className="bg-yellow-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold">Quadratic Equations</h4>
+                                    <p className="text-gray-600">Learn to solve quadratic equations using various methods.</p>
+                                    <div className="mt-2 font-mono text-sm">Example: x² + 5x + 6 = 0</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-8">
+                        <h3 className="text-xl font-semibold mb-4 text-gray-700">How to Use Math Solver Pro</h3>
+                        <div className="grid md:grid-cols-3 gap-6">
+                            <div className="text-center">
+                                <i className="fas fa-keyboard text-4xl text-blue-600 mb-4"></i>
+                                <h4 className="font-semibold mb-2">Type Your Problem</h4>
+                                <p className="text-gray-600">Enter your math problem directly into the text area.</p>
+                            </div>
+                            <div className="text-center">
+                                <i className="fas fa-camera text-4xl text-green-600 mb-4"></i>
+                                <h4 className="font-semibold mb-2">Upload an Image</h4>
+                                <p className="text-gray-600">Take a photo of your math problem and upload it.</p>
+                            </div>
+                            <div className="text-center">
+                                <i className="fas fa-magic text-4xl text-purple-600 mb-4"></i>
+                                <h4 className="font-semibold mb-2">Get Solutions</h4>
+                                <p className="text-gray-600">Receive step-by-step solutions instantly.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // FAQ Page Component
+        const FAQPage = () => (
+            <div className="max-w-4xl mx-auto p-6">
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                    <h2 className="text-3xl font-bold mb-8 text-gray-800">
+                        <i className="fas fa-question-circle mr-3 text-blue-600"></i>
+                        Frequently Asked Questions
+                    </h2>
+
+                    <div className="space-y-6">
+                        <div className="border-b pb-6">
+                            <h3 className="text-lg font-semibold mb-2">How does Math Solver Pro work?</h3>
+                            <p className="text-gray-600">Math Solver Pro uses advanced AI and OCR technology to solve math problems. You can either type your problem directly or upload an image, and our system will provide step-by-step solutions.</p>
+                        </div>
+
+                        <div className="border-b pb-6">
+                            <h3 className="text-lg font-semibold mb-2">What's included in the free plan?</h3>
+                            <p className="text-gray-600">The free plan allows you to solve up to 5 math problems per day. This includes both manual input and image-based problems with full step-by-step solutions.</p>
+                        </div>
+
+                        <div className="border-b pb-6">
+                            <h3 className="text-lg font-semibold mb-2">What types of math problems can it solve?</h3>
+                            <p className="text-gray-600">Math Solver Pro can handle basic arithmetic, algebra, equations, and many other mathematical expressions. It works best with clearly written or typed problems.</p>
+                        </div>
+
+                        <div className="border-b pb-6">
+                            <h3 className="text-lg font-semibold mb-2">How accurate is the image recognition (OCR)?</h3>
+                            <p className="text-gray-600">Our OCR technology is highly accurate for clearly written math problems. For best results, ensure good lighting and clear handwriting or printed text.</p>
+                        </div>
+
+                        <div className="border-b pb-6">
+                            <h3 className="text-lg font-semibold mb-2">What do I get with Premium?</h3>
+                            <p className="text-gray-600">Premium users get unlimited math problem solving with no daily limits, priority support, and an ad-free experience for just $5 one-time payment.</p>
+                        </div>
+
+                        <div>
+                            <h3 className="text-lg font-semibold mb-2">How do I access Premium features?</h3>
+                            <p className="text-gray-600">After purchasing Premium through Gumroad, you'll be automatically redirected to the premium version of Math Solver Pro with unlimited access.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // Contact Page Component
+        const ContactPage = () => (
+            <div className="max-w-4xl mx-auto p-6">
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                    <h2 className="text-3xl font-bold mb-8 text-gray-800">
+                        <i className="fas fa-envelope mr-3 text-blue-600"></i>
+                        Contact Us
+                    </h2>
+
+                    <div className="grid md:grid-cols-2 gap-8">
+                        <div>
+                            <h3 className="text-xl font-semibold mb-4">Get in Touch</h3>
+                            <div className="space-y-4">
+                                <div className="flex items-center space-x-3">
+                                    <i className="fas fa-user text-blue-600"></i>
+                                    <div>
+                                        <div className="font-semibold">Sarthak Sharma</div>
+                                        <div className="text-gray-600">Developer & Founder</div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                    <i className="fas fa-envelope text-blue-600"></i>
+                                    <div>
+                                        <a href="mailto:sarthaks42388434@gmail.com" className="text-blue-600 hover:underline">
+                                            sarthaks42388434@gmail.com
+                                        </a>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                    <i className="fas fa-map-marker-alt text-blue-600"></i>
+                                    <div>
+                                        <div>Satna, Madhya Pradesh</div>
+                                        <div className="text-gray-600">India</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 className="text-xl font-semibold mb-4">Send a Message</h3>
+                            <form className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                                    <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                    <input type="email" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
+                                    <textarea rows="4" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                                </div>
+                                <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition">
+                                    <i className="fas fa-paper-plane mr-2"></i>Send Message
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // Privacy Policy Page
+        const PrivacyPage = () => (
+            <div className="max-w-4xl mx-auto p-6">
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                    <h2 className="text-3xl font-bold mb-8 text-gray-800">Privacy Policy</h2>
+                    <div className="prose max-w-none">
+                        <p className="mb-4">Last updated: {new Date().toLocaleDateString()}</p>
+                        
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Information We Collect</h3>
+                        <p className="mb-4">We collect minimal information to provide our math solving service:</p>
+                        <ul className="list-disc pl-6 mb-4">
+                            <li>Usage data stored locally in your browser for daily limits</li>
+                            <li>Images you upload for OCR processing (processed locally, not stored)</li>
+                            <li>Basic analytics data for service improvement</li>
+                        </ul>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">How We Use Information</h3>
+                        <p className="mb-4">Your information is used solely to:</p>
+                        <ul className="list-disc pl-6 mb-4">
+                            <li>Provide math solving services</li>
+                            <li>Track daily usage limits</li>
+                            <li>Improve our service quality</li>
+                        </ul>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Data Security</h3>
+                        <p className="mb-4">We take data security seriously. All image processing happens in your browser, and we don't store your math problems or images on our servers.</p>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Contact</h3>
+                        <p>For privacy-related questions, contact us at sarthaks42388434@gmail.com</p>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // Terms of Service Page
+        const TermsPage = () => (
+            <div className="max-w-4xl mx-auto p-6">
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                    <h2 className="text-3xl font-bold mb-8 text-gray-800">Terms of Service</h2>
+                    <div className="prose max-w-none">
+                        <p className="mb-4">Last updated: {new Date().toLocaleDateString()}</p>
+                        
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Acceptance of Terms</h3>
+                        <p className="mb-4">By using Math Solver Pro, you agree to these terms and conditions.</p>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Service Description</h3>
+                        <p className="mb-4">Math Solver Pro provides AI-powered math problem solving with both free and premium tiers.</p>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Free Service Limitations</h3>
+                        <ul className="list-disc pl-6 mb-4">
+                            <li>Limited to 5 problems per day</li>
+                            <li>Subject to advertisements</li>
+                            <li>No guarantee of service availability</li>
+                        </ul>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Premium Service</h3>
+                        <ul className="list-disc pl-6 mb-4">
+                            <li>Unlimited problem solving</li>
+                            <li>Ad-free experience</li>
+                            <li>One-time payment of $5</li>
+                            <li>No refunds for digital products</li>
+                        </ul>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">User Responsibilities</h3>
+                        <ul className="list-disc pl-6 mb-4">
+                            <li>Use the service for legitimate educational purposes</li>
+                            <li>Don't abuse or attempt to hack the service</li>
+                            <li>Respect daily usage limits for free accounts</li>
+                        </ul>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Disclaimer</h3>
+                        <p className="mb-4">Math solutions are provided as-is. While we strive for accuracy, users should verify important calculations independently.</p>
+
+                        <h3 className="text-xl font-semibold mt-6 mb-3">Contact</h3>
+                        <p>For questions about these terms, contact us at sarthaks42388434@gmail.com</p>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // Premium Access Page
+        const PremiumAccessPage = () => (
+            <div className="max-w-4xl mx-auto p-6">
+                <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg p-8 mb-6">
+                    <div className="text-center">
+                        <i className="fas fa-crown text-6xl mb-4"></i>
+                        <h2 className="text-3xl font-bold mb-4">Welcome to Premium!</h2>
+                        <p className="text-xl">You now have unlimited access to Math Solver Pro</p>
+                    </div>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-6 mb-8">
+                    <div className="bg-white rounded-lg shadow-lg p-6 text-center">
+                        <i className="fas fa-infinity text-4xl text-green-600 mb-4"></i>
+                        <h3 className="text-lg font-semibold mb-2">Unlimited Solving</h3>
+                        <p className="text-gray-600">Solve as many math problems as you want, anytime</p>
+                    </div>
+                    <div className="bg-white rounded-lg shadow-lg p-6 text-center">
+                        <i className="fas fa-ad text-4xl text-blue-600 mb-4"></i>
+                        <h3 className="text-lg font-semibold mb-2">Ad-Free Experience</h3>
+                        <p className="text-gray-600">Enjoy Math Solver Pro without any advertisements</p>
+                    </div>
+                    <div className="bg-white rounded-lg shadow-lg p-6 text-center">
+                        <i className="fas fa-headset text-4xl text-purple-600 mb-4"></i>
+                        <h3 className="text-lg font-semibold mb-2">Priority Support</h3>
+                        <p className="text-gray-600">Get priority help when you need assistance</p>
+                    </div>
+                </div>
+
+                <MathSolver />
+            </div>
+        );
+
+        // Footer Component
+        const Footer = ({ setCurrentPage }) => (
+            <footer className="bg-gray-800 text-white py-8 mt-12">
+                <div className="container mx-auto px-4">
+                    <div className="grid md:grid-cols-4 gap-8">
+                        <div>
+                            <div className="flex items-center space-x-2 mb-4">
+                                <i className="fas fa-calculator text-blue-400 text-xl"></i>
+                                <span className="text-lg font-bold">Math Solver Pro</span>
+                            </div>
+                            <p className="text-gray-400">AI-powered math problem solver with step-by-step solutions.</p>
+                        </div>
+                        
+                        <div>
+                            <h4 className="font-semibold mb-4">Quick Links</h4>
+                            <div className="space-y-2">
+                                <button onClick={() => setCurrentPage('home')} className="block text-gray-400 hover:text-white">Home</button>
+                                <button onClick={() => setCurrentPage('learn')} className="block text-gray-400 hover:text-white">Learn</button>
+                                <button onClick={() => setCurrentPage('faq')} className="block text-gray-400 hover:text-white">FAQ</button>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h4 className="font-semibold mb-4">Legal</h4>
+                            <div className="space-y-2">
+                                <button onClick={() => setCurrentPage('privacy')} className="block text-gray-400 hover:text-white">Privacy Policy</button>
+                                <button onClick={() => setCurrentPage('terms')} className="block text-gray-400 hover:text-white">Terms of Service</button>
+                                <button onClick={() => setCurrentPage('contact')} className="block text-gray-400 hover:text-white">Contact</button>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h4 className="font-semibold mb-4">Get Premium</h4>
+                            <p className="text-gray-400 mb-4">Already bought premium?</p>
+                            <a 
+                                href="#premium-access" 
+                                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition inline-block"
+                            >
+                                Access Premium Here
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <div className="border-t border-gray-700 mt-8 pt-8 text-center text-gray-400">
+                        <p>&copy; 2024 Math Solver Pro. Developed by Sarthak Sharma. All rights reserved.</p>
+                    </div>
+                </div>
+            </footer>
+        );
+
+        // Main App Component
+        const App = () => {
+            const [currentPage, setCurrentPage] = useState('home');
+
+            useEffect(() => {
+                // Handle routing based on hash
+                const handleHashChange = () => {
+                    const hash = window.location.hash.slice(1);
+                    if (hash) {
+                        setCurrentPage(hash);
+                    }
+                };
+
+                handleHashChange();
+                window.addEventListener('hashchange', handleHashChange);
+                
+                return () => window.removeEventListener('hashchange', handleHashChange);
+            }, []);
+
+            const renderPage = () => {
+                switch (currentPage) {
+                    case 'premium-access':
+                        return <PremiumAccessPage />;
+                    case 'learn':
+                        return <LearnPage />;
+                    case 'faq':
+                        return <FAQPage />;
+                    case 'contact':
+                        return <ContactPage />;
+                    case 'privacy':
+                        return <PrivacyPage />;
+                    case 'terms':
+                        return <TermsPage />;
+                    default:
+                        return <MathSolver />;
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col">
+                    <Header currentPage={currentPage} setCurrentPage={setCurrentPage} />
+                    <main className="flex-grow">
+                        {renderPage()}
+                    </main>
+                    <Footer setCurrentPage={setCurrentPage} />
+                </div>
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
